@@ -1,0 +1,145 @@
+<!DOCTYPE html><html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chuli GPS - Optimización de Rutas</title>
+  <style>
+    #map {
+      height: 80vh;
+      width: 100%;
+    }
+    body {
+      font-family: sans-serif;
+      margin: 0;
+      padding: 0;
+    }
+    .controls {
+      padding: 10px;
+      background: #f0f0f0;
+    }
+    .controls input {
+      margin: 5px;
+      padding: 8px;
+      width: 90%;
+    }
+    button {
+      padding: 10px;
+      background-color: #1d72b8;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+  </style>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head>
+<body>
+  <div class="controls">
+    <input type="text" placeholder="Dirección 1" class="address">
+    <input type="text" placeholder="Dirección 2" class="address">
+    <input type="text" placeholder="Dirección 3" class="address">
+    <button onclick="optimizeRoute()">Optimizar Ruta</button>
+  </div>
+  <div id="map"></div>  <script>
+    const apiKey = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjAyNjY4YmE3NTkyMzQ5OGJiNGRkYjA2OTI0YTM3MGQ1IiwiaCI6Im11cm11cjY0In0=";
+    let map = L.map('map').setView([-38.0055, -57.5426], 13);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
+
+    let markers = [];
+    let routeLine;
+    let userLocation;
+
+    navigator.geolocation.getCurrentPosition(pos => {
+      const { latitude, longitude } = pos.coords;
+      userLocation = [latitude, longitude];
+      map.setView(userLocation, 14);
+      L.marker(userLocation).addTo(map).bindPopup("Tu ubicación").openPopup();
+    });
+
+    async function optimizeRoute() {
+      const inputs = document.querySelectorAll('.address');
+      const addresses = Array.from(inputs)
+        .map(input => input.value.trim())
+        .filter(Boolean);
+
+      if (addresses.length < 2) {
+        alert("Ingresá al menos 2 direcciones.");
+        return;
+      }
+
+      const geocoded = await Promise.all(addresses.map(geocode));
+      const allPoints = [userLocation, ...geocoded];
+
+      const jobs = geocoded.map((loc, i) => ({
+        id: i + 1,
+        location: { lat: loc[0], lon: loc[1] },
+        service: 300
+      }));
+
+      const vehicles = [{
+        vehicle_id: "veh1",
+        start_address: { lat: userLocation[0], lon: userLocation[1] },
+        type_id: "car",
+        return_to_depot: false
+      }];
+
+      const body = {
+        vehicles,
+        vehicle_types: [{
+          type_id: "car",
+          profile: "car"
+        }],
+        services: jobs
+      };
+
+      const res = await fetch(`https://graphhopper.com/api/1/vrp/optimize?key=${apiKey}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+
+      const data = await res.json();
+
+      if (!data.job_id) {
+        alert("Error al optimizar la ruta");
+        return;
+      }
+
+      const solution = await pollSolution(data.job_id);
+
+      if (solution && solution.routes && solution.routes[0]) {
+        const points = solution.routes[0].activities.map(a => [a.address.lat, a.address.lon]);
+        drawRoute(points);
+      }
+    }
+
+    async function pollSolution(job_id) {
+      for (let i = 0; i < 10; i++) {
+        const res = await fetch(`https://graphhopper.com/api/1/vrp/solution/${job_id}?key=${apiKey}`);
+        const data = await res.json();
+        if (data.status === "finished") return data.solution;
+        await new Promise(r => setTimeout(r, 2000));
+      }
+      alert("Tiempo de espera agotado para la solución");
+    }
+
+    async function geocode(address) {
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`);
+      const data = await res.json();
+      if (data.length === 0) throw new Error("Dirección no encontrada");
+      return [parseFloat(data[0].lat), parseFloat(data[0].lon)];
+    }
+
+    function drawRoute(coords) {
+      if (routeLine) map.removeLayer(routeLine);
+      routeLine = L.polyline(coords, { color: 'blue', weight: 5 }).addTo(map);
+      coords.forEach(c => markers.push(L.marker(c).addTo(map)));
+      map.fitBounds(routeLine.getBounds());
+    }
+  </script></body>
+</html>
