@@ -1,0 +1,110 @@
+<!DOCTYPE html><html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Chuli GPS</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css" />
+  <style>
+    html, body, #map {
+      height: 100%;
+      margin: 0;
+      font-family: sans-serif;
+    }
+    #controls {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: white;
+      padding: 10px;
+      z-index: 1000;
+      box-shadow: 0 0 5px rgba(0,0,0,0.3);
+    }
+    input, button {
+      margin: 5px 0;
+      width: 100%;
+    }
+  </style>
+</head>
+<body>
+  <div id="controls">
+    <button onclick="useMyLocation()">Usar mi ubicación</button>
+    <div id="waypoints"></div>
+    <button onclick="addWaypoint()">Agregar dirección</button>
+    <button onclick="optimizeRoute()">Optimizar ruta</button>
+  </div>
+  <div id="map"></div>  <script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"></script>  <script>
+    let map = L.map('map').setView([-38.0055, -57.5426], 13);
+
+    L.tileLayer('https://api.maptiler.com/maps/streets/{z}/{x}/{y}.png?key=U93Vu1AgsdIv6oEBYzRt', {
+      attribution: '&copy; MapTiler',
+    }).addTo(map);
+
+    let markers = [];
+    let waypointInputs = [];
+    let currentLocation = null;
+
+    function addWaypoint(val = '') {
+      const container = document.createElement('div');
+      const input = document.createElement('input');
+      input.placeholder = 'Dirección o coordenadas';
+      input.value = val;
+      container.appendChild(input);
+      document.getElementById('waypoints').appendChild(container);
+      waypointInputs.push(input);
+    }
+
+    function useMyLocation() {
+      navigator.geolocation.getCurrentPosition(pos => {
+        currentLocation = [pos.coords.latitude, pos.coords.longitude];
+        L.marker(currentLocation).addTo(map).bindPopup('Estás aquí').openPopup();
+        map.setView(currentLocation, 14);
+      }, err => alert('No se pudo obtener tu ubicación'));
+    }
+
+    async function optimizeRoute() {
+      const apiKey = '5b3ce3597851110001cf6248';
+      const coords = [];
+
+      if (currentLocation) coords.push(currentLocation);
+
+      for (let input of waypointInputs) {
+        if (input.value.trim() !== '') {
+          try {
+            const geocode = await fetch(`https://api.openrouteservice.org/geocode/search?api_key=${apiKey}&text=${encodeURIComponent(input.value)}`);
+            const data = await geocode.json();
+            const loc = data.features[0].geometry.coordinates.reverse();
+            coords.push(loc);
+          } catch (e) {
+            alert('Error geocodificando: ' + input.value);
+          }
+        }
+      }
+
+      if (coords.length < 2) return alert('Agrega al menos 2 ubicaciones.');
+
+      const body = {
+        coordinates: coords,
+        optimize_waypoints: true
+      };
+
+      const route = await fetch('https://api.openrouteservice.org/v2/directions/driving-car/geojson', {
+        method: 'POST',
+        headers: {
+          'Authorization': apiKey,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(body)
+      });
+
+      const json = await route.json();
+
+      if (window.routeLayer) map.removeLayer(window.routeLayer);
+      window.routeLayer = L.geoJSON(json, { color: 'blue' }).addTo(map);
+      map.fitBounds(window.routeLayer.getBounds());
+    }
+
+    // Agrega dos campos por defecto
+    addWaypoint();
+    addWaypoint();
+  </script></body>
+</html>
