@@ -59,106 +59,114 @@ function makeNumberIcon(n){
 }
 
 function refreshStopsUI(){
-  markers.forEach(m=>map.removeLayer(m)); markers=[];
-  const list = document.getElementById('stops'); list.innerHTML='';
-  stops.forEach((s,i)=>{
-    const li = document.createElement('div'); li.className='stop-item';
+  markers.forEach(m => map.removeLayer(m)); 
+  markers = [];
+  const list = document.getElementById('stops'); 
+  list.innerHTML = '';
+  stops.forEach((s, i) => {
+    const li = document.createElement('div'); 
+    li.className = 'stop-item';
     const left = document.createElement('div');
-    left.innerHTML = `<span class="num-badge">${i+1}</span><strong>${s.address}</strong><br><small>${s.lat.toFixed(5)}, ${s.lng.toFixed(5)}</small>`;
+    left.innerHTML = `<span class="num-badge">${i + 1}</span><strong>${s.address}</strong><br><small>${s.lat.toFixed(5)}, ${s.lng.toFixed(5)}</small>`;
     const right = document.createElement('div');
-    const dist = userPos ? (haversine(userPos,[s.lat,s.lng])|0) : -1;
-    right.innerHTML = `<small>${userPos? (dist/1000).toFixed(2)+' km':''}</small>`;
-    li.appendChild(left); li.appendChild(right);
+    const dist = userPos ? (haversine(userPos, [s.lat, s.lng]) | 0) : -1;
+    right.innerHTML = `<small>${userPos ? (dist / 1000).toFixed(2) + ' km' : ''}</small>`;
+    li.appendChild(left); 
+    li.appendChild(right);
     list.appendChild(li);
-    const m = L.marker([s.lat,s.lng], {icon: makeNumberIcon(i+1)}).addTo(map).bindPopup(`${i+1}. ${s.address}`);
+    const m = L.marker([s.lat, s.lng], {icon: makeNumberIcon(i + 1)}).addTo(map).bindPopup(`${i + 1}. ${s.address}`);
     markers.push(m);
   });
 }
 
 async function addStopFromAddress(address){
-  if(!address){ alert('Ingresá una dirección'); return; }
-  if(stops.length >= MAX_STOPS){ alert('Máximo '+MAX_STOPS+' destinos'); return; }
-  try{
+  if (!address) { alert('Ingresá una dirección'); return; }
+  if (stops.length >= MAX_STOPS) { alert('Máximo ' + MAX_STOPS + ' destinos'); return; }
+  try {
     const url = `https://api.openrouteservice.org/geocode/search?api_key=${ORS_API_KEY}&text=${encodeURIComponent(address)}&size=1`;
     const r = await fetch(url);
     const j = await r.json();
-    if(!j.features || j.features.length===0) throw new Error('no encontrado');
-    const [lon,lat] = j.features[0].geometry.coordinates;
+    if (!j.features || j.features.length === 0) throw new Error('no encontrado');
+    const [lon, lat] = j.features[0].geometry.coordinates;
     stops.push({address: address, lat: lat, lng: lon});
     refreshStopsUI();
-    if(userPos) {
+    if (userPos) {
       sortStopsByProximity();
       await drawRouteAuto();
     }
-  }catch(e){
+  } catch (e) {
     console.error(e);
     alert('Dirección no encontrada. Asegúrate de que la dirección sea correcta.');
   }
 }
 
 function useMyLocation(){
-  if(!navigator.geolocation){ alert('No hay geolocalización disponible'); return; }
-  navigator.geolocation.getCurrentPosition(p=>{
+  if (!navigator.geolocation) { alert('No hay geolocalización disponible'); return; }
+  navigator.geolocation.getCurrentPosition(p => {
     userPos = [p.coords.latitude, p.coords.longitude];
-    const m = L.circleMarker(userPos,{radius:8, color:'#2e7d32', fill:true}).addTo(map).bindPopup('Tu ubicación').openPopup();
-    map.setView(userPos,14);
+    const m = L.circleMarker(userPos, {radius: 8, color: '#2e7d32', fill: true}).addTo(map).bindPopup('Tu ubicación').openPopup();
+    map.setView(userPos, 14);
     refreshStopsUI();
-  }, err=>{
-    alert('Error de geolocalización: '+err.message);
-  }, {enableHighAccuracy:true, timeout:10000});
+  }, err => {
+    alert('Error de geolocalización: ' + err.message);
+  }, {enableHighAccuracy: true, timeout: 10000});
 }
 
 function sortStopsByProximity(){
-  if(!userPos) { alert('Activa ubicación primero (📍 Mi ubicación)'); return; }
-  stops.sort((a,b)=> haversine(userPos,[a.lat,a.lng]) - haversine(userPos,[b.lat,b.lng]));
+  if (!userPos) { alert('Activa ubicación primero (📍 Mi ubicación)'); return; }
+  stops.sort((a, b) => haversine(userPos, [a.lat, a.lng]) - haversine(userPos, [b.lat, b.lng]));
   refreshStopsUI();
 }
 
 async function drawRouteOrdered(coordsLatLng){
-  if(coordsLatLng.length < 2) return;
+  if (coordsLatLng.length < 2) return;
   const coordsLonLat = coordsLatLng.map(c => [c[1], c[0]]);
   const body = { coordinates: coordsLonLat };
-  try{
+  try {
     const res = await fetch('https://api.openrouteservice.org/v2/directions/driving-car/geojson', {
-      method:'POST',
-      headers:{ 'Authorization': ORS_API_KEY, 'Content-Type':'application/json' },
+      method: 'POST',
+      headers: { 'Authorization': ORS_API_KEY, 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     });
     const geo = await res.json();
-    if(routeLayer) map.removeLayer(routeLayer);
-    routeLayer = L.geoJSON(geo, { style:{color:'#1976d2', weight:4} }).addTo(map);
-    map.fitBounds(routeLayer.getBounds(), {padding:[40,40]});
-  }catch(e){
+    if (routeLayer) map.removeLayer(routeLayer);
+    routeLayer = L.geoJSON(geo, { style: { color: '#1976d2', weight: 4 } }).addTo(map);
+    map.fitBounds(routeLayer.getBounds(), {padding: [40, 40]});
+  } catch (e) {
     console.error(e);
     alert('Error trazando ruta. Verifica tu conexión a Internet.');
   }
 }
 
 async function drawRouteAuto(){
-  if(!userPos) { console.warn('sin userPos'); return; }
-  if(stops.length === 0) return;
+  if (!userPos) { console.warn('sin userPos'); return; }
+  if (stops.length === 0) return;
   sortStopsByProximity();
-  const coords = [userPos, ...stops.map(s=>[s.lat,s.lng])];
+  const coords = [userPos, ...stops.map(s => [s.lat, s.lng])];
   await drawRouteOrdered(coords);
 }
 
 async function invertOrder(){
   stops.reverse();
   refreshStopsUI();
-  if(userPos) await drawRouteOrdered([userPos, ...stops.map(s=>[s.lat,s.lng])]);
+  if (userPos) await drawRouteOrdered([userPos, ...stops.map(s => [s.lat, s.lng])]);
 }
 
 function clearAll(){
-  stops = []; markers.forEach(m=>map.removeLayer(m)); markers=[]; if(routeLayer) map.removeLayer(routeLayer); routeLayer=null;
-  document.getElementById('stops').innerHTML='';
+  stops = []; 
+  markers.forEach(m => map.removeLayer(m)); 
+  markers = []; 
+  if (routeLayer) map.removeLayer(routeLayer); 
+  routeLayer = null;
+  document.getElementById('stops').innerHTML = '';
 }
 
 document.getElementById('btn-loc').onclick = useMyLocation;
-document.getElementById('btn-add').onclick = ()=> addStopFromAddress(document.getElementById('addr').value.trim());
+document.getElementById('btn-add').onclick = () => addStopFromAddress(document.getElementById('addr').value.trim());
 document.getElementById('btn-invert').onclick = invertOrder;
 document.getElementById('btn-clear').onclick = clearAll;
 document.getElementById('btn-opt').onclick = drawRouteAuto;
-document.getElementById('addr').addEventListener('keypress', e=>{ if(e.key==='Enter') addStopFromAddress(e.target.value.trim()); });
+document.getElementById('addr').addEventListener('keypress', e => { if (e.key === 'Enter') addStopFromAddress(e.target.value.trim()); });
 
 </script>
 </body>
